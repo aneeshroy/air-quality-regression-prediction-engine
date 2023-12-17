@@ -1,0 +1,387 @@
+---
+title: "Project 2 --- Navigating the Air: Data-Driven Insights into Atmospheric Particulate Matter"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE,  
+                      warning = FALSE, message = FALSE, 
+                      fig.align = "center",
+                      R.options = list(max.print=100))
+```
+
+### Het Desai and Aneesh Roy
+
+**Introduction**
+
+Air quality is a critical determinant of environmental health, with particulate matter (PM2.5) concentrations serving as a key indicator of atmospheric pollution. In this study, we embark on a comprehensive exploration of air quality data, employing a spectrum of modeling techniques to unravel patterns and predictive insights. Leveraging both traditional linear regression methods and advanced machine learning algorithms, our investigation aims to scrutinize the intricate relationship between PM2.5 levels and a set of diverse environmental factors. As we navigate through the intricacies of modeling, we delve into the challenges and triumphs encountered in the pursuit of understanding airborne particulate dynamics. This paper unfolds as a journey through the realms of predictive analytics, offering a nuanced perspective on the factors influencing PM2.5 concentrations in our atmospheric milieu.
+
+In this study, various modeling approaches were employed to comprehensively assess their performance in predicting PM2.5 concentrations. The chosen models encompassed linear regression, k-nearest neighbors (k-NN), random forest, and decision tree models. Linear regression, a classic statistical method, was used to establish a baseline for predictive modeling. K-nearest neighbors leverages proximity-based relationships, determining predictions based on the values of the nearest data points. Random forest, an ensemble learning technique, incorporates multiple decision trees to enhance predictive accuracy. Additionally, a decision tree model was implemented to capture nonlinear relationships within the dataset. This diverse set of modeling approaches allowed for a robust comparison, considering both linear and nonlinear relationships in the data.
+
+In selecting predictor variables for our model, we conducted a thoughtful consideration of various factors to ensure the model's predictive performance and relevance. The dataset includes a range of potential predictors related to air pollution concentrations, such as CMAQ (Community Multiscale Air Quality) estimates, aerosol optical depth (AOD) measurements from satellites, and socioeconomic indicators like the percentage of people with different education levels and poverty rates. We aimed to strike a balance between including comprehensive features and avoiding overfitting by selecting variables with theoretical significance and empirical evidence of their impact on air pollution. Additionally, exploratory analysis, including correlation assessments and visualizations, was conducted to understand the relationships between predictors and the target variable (PM2.5 concentrations). This iterative process guided the final selection of CMAQ, AOD, and the percentage of people living in poverty (pov) as key predictors in our model, contributing to a well-rounded and informative prediction approach.
+
+Looking at correlations between the variables and the actual values: 
+
+```{r}
+
+dat %>%
+  ggplot(aes(x = aod, y = value)) +
+  geom_point() +
+  ggtitle("AOD vs. PM 2.5")
+
+dat %>%
+  ggplot(aes(x = CMAQ, y = value)) +
+  geom_point() +
+  ggtitle("CMAQ vs. PM 2.5")
+
+
+dat %>%
+  ggplot(aes(x = pov, y = value)) +
+  geom_point() +
+  ggtitle("pov vs. PM 2.5")
+
+
+```
+
+We can see that the CMAQ and the AOD seem to have stronger positive correlations with the PM 2.5 data collected. The poverty level's correlation is cursory at best, but will provide ample extra measurement to aid in wrangling outliers in the data for higher accuracy with the model.
+
+We first begin with the data.
+
+```{r}
+# Load all libraries used for modeling
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+
+# Data
+dat <- read_csv("https://github.com/rdpeng/stat322E_public/raw/main/data/pm25_data.csv.gz")
+```
+
+To ensure robust model evaluation and performance, the dataset was judiciously divided into training and testing sets. The training set, comprising the majority of the data, serves as the foundation for model training, allowing algorithms to learn underlying patterns. The testing set, kept separate and unseen during training, acts as an independent benchmark, facilitating the assessment of model generalization to new, unseen data.
+
+```{r}
+## Split the data into training and test sets
+dat_split <- initial_split(dat)
+dat_train <- training(dat_split)
+
+dat_split
+```
+
+**Linear Regression**
+
+The first modeling approach employed a Linear Regression model, a fundamental statistical method used for predicting a continuous outcome variable based on one or more predictor variables. Linear Regression assumes a linear relationship between the predictors and the target variable, aiming to find the best-fit line that minimizes the difference between observed and predicted values.
+
+```{r}
+## Linear regression
+
+## Recipe
+rec <- dat_train %>% 
+    recipe(value ~ CMAQ + aod + pov) 
+
+## Define the model
+model <- linear_reg() %>% 
+    set_engine("lm") %>% 
+    set_mode("regression")
+
+# Combine recipe and model into a workflow
+wf <- workflow() %>% 
+    add_recipe(rec) %>% 
+    add_model(model)
+
+## Model fit
+model_fit <- fit(wf, data = dat_train)
+
+tidy(model_fit)
+
+## Check performance on the complete training data
+model_fit %>% 
+    extract_fit_engine() %>% 
+    summary()
+
+## Assess model fit / predictions
+dat_model <- rec %>% 
+    prep(dat_train) %>% 
+    bake(new_data = NULL)
+
+## Extract the model fit and create a column for predictions
+model_fit %>% 
+    extract_fit_parsnip() %>% 
+    augment(new_data = dat_model)
+
+## Plot observed vs. predicted outcomes
+model_fit %>% 
+    extract_fit_parsnip() %>% 
+    augment(new_data = dat_model) %>% 
+    ggplot(aes(.pred, value)) + 
+    geom_point() +
+    geom_abline(intercept = 0, slope = 1) +
+    labs(title = "Linear Regression Model") +
+    xlab("Predicted PM 2.5") +
+    ylab("Actual PM 2.5")
+
+## Check performance using cross-validation
+folds <- vfold_cv(dat_train, v = 10)
+res <- fit_resamples(wf, resamples = folds)
+res %>% 
+    collect_metrics()
+```
+**k-NN model**
+
+Second, the analysis extended to the utilization of the k-Nearest Neighbors (k-NN) model, a non-parametric and instance-based algorithm. Unlike Linear Regression, k-NN doesn't assume a predefined functional form but rather makes predictions based on the majority class or average value of the k-nearest data points in the feature space. This proximity-driven approach makes k-NN versatile for various types of relationships within the data, allowing it to capture more complex patterns without imposing strict assumptions on the underlying structure.
+
+```{r}
+## Try k-NN model
+rec <- dat_train %>% 
+    recipe(value ~ CMAQ + aod)
+
+model <- nearest_neighbor(neighbors = 10) %>% 
+    set_engine("kknn") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_model(model) %>% 
+    add_recipe(rec)
+
+folds <- vfold_cv(dat_train, v = 5)
+
+res <- fit_resamples(wf, resamples = folds)
+
+res %>% 
+    collect_metrics()
+
+## Tune for the optimal number of neighbors
+model <- nearest_neighbor(neighbors = tune("k")) %>% 
+    set_engine("kknn") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_model(model) %>% 
+    add_recipe(rec)
+
+wf
+
+folds <- vfold_cv(dat_train, v = 5)
+
+res <- tune_grid(wf, resamples = folds,
+                 grid = tibble(k = c(3, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70)))
+
+res %>% 
+    collect_metrics()
+
+res %>% 
+    collect_metrics() %>% 
+    filter(.metric == "rmse") %>% 
+    ggplot(aes(k, mean)) +
+    geom_point() + 
+    geom_line()
+
+res %>% 
+    show_best(metric = "rmse")
+
+res %>% 
+    show_best(metric = "rsq")
+
+res %>% 
+    collect_metrics() %>% 
+    filter(.metric == "rsq") %>% 
+    ggplot(aes(k, mean)) +
+    geom_point() + 
+    geom_line() + 
+    ggtitle("kNN Performance")
+
+## Try k-NN with PCA on predictors
+rec <- dat_train %>% 
+    recipe(value ~ CMAQ + aod)
+
+model <- nearest_neighbor(neighbors = 25) %>% 
+    set_engine("kknn") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_model(model) %>% 
+    add_recipe(rec)
+
+folds <- vfold_cv(dat_train, v = 5)
+
+res <- fit_resamples(wf, resamples = folds)
+res %>% 
+    collect_metrics()
+
+## Tune PCA Components
+rec <- dat_train %>% 
+    recipe(value ~ CMAQ + aod)
+
+model <- nearest_neighbor(neighbors = 25) %>% 
+    set_engine("kknn") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_model(model) %>% 
+    add_recipe(rec)
+
+res <- tune_grid(wf, resamples = folds,
+                 grid = tibble(pca = c(1, 5, 10, 15, 20)))
+
+res %>% 
+    show_best(metric = "rmse")
+```
+
+**Random Forest**
+
+Third, the Random Forest model was used. Unlike the previous models, Random Forest operates by constructing a multitude of decision trees during training and outputs the average prediction of the individual trees for regression tasks. This approach enhances predictive accuracy and mitigates overfitting.
+
+```{r}
+## Random forest
+rec <- dat_train %>% 
+    recipe(value ~ CMAQ + aod + pov)
+
+model <- rand_forest(mtry = 5) %>% 
+    set_engine("ranger") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_recipe(rec) %>% 
+    add_model(model)
+wf
+
+folds <- vfold_cv(dat_train, v = 5)
+folds
+
+res <- fit_resamples(wf, resamples = folds)
+
+res %>% 
+    collect_metrics()
+
+## Try a grid of tuning parameters
+model <- rand_forest(mtry = tune("mtry"),
+                     min_n = tune("min_n")) %>% 
+    set_engine("ranger") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_recipe(rec) %>% 
+    add_model(model)
+
+## Fit model over grid of tuning parameters
+res <- tune_grid(wf, resamples = folds, 
+                 grid = expand.grid(mtry = c(1, 2, 5),
+                                    min_n = c(3, 5)))
+res %>% 
+    collect_metrics()
+
+res %>% 
+    show_best(metric = "rmse")
+
+res %>% 
+    show_best(metric = "rsq")
+
+res %>% 
+    select_best(metric = "rmse") 
+
+## Fit the best model obtained from tuning
+model <- rand_forest(mtry = 2,
+                     min_n = 5) %>% 
+    set_engine("ranger") %>% 
+    set_mode("regression")
+
+wf <- workflow() %>% 
+    add_recipe(rec) %>% 
+    add_model(model)
+
+## Fit final model to entire training set; evaluate on test set
+final <- wf %>% 
+    last_fit(split = dat_split)
+
+final %>% 
+    collect_metrics()
+
+## Extract the model fit and create a column for predictions
+model_fit %>% 
+    extract_fit_parsnip() %>% 
+    augment(new_data = dat_model)
+
+## Plot the observed PM2.5 values vs. model predictions
+final %>% 
+    collect_predictions() %>% 
+    ggplot(aes(.pred, value)) +
+    geom_point() + 
+    geom_abline(intercept = 0, slope = 1) +
+    labs(title = "Random Forest Model") +
+    xlab("Predicted PM 2.5") +
+    ylab("Actual PM 2.5")
+```
+
+**Decision Tree Model**
+
+Lastly, the analysis extended to a Decision Tree model, specifically implemented using the rpart engine. Decision Trees are hierarchical structures that recursively partition the data based on features, making sequential decisions to predict the target variable.
+
+```{r}
+# Define a decision tree model
+tree_model <- decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+
+# Define a recipe for the model
+tree_recipe <- recipe(value ~ CMAQ + aod + pov, data = dat_train)
+
+# Combine recipe and model into a workflow
+tree_wf <- workflow() %>% 
+  add_model(tree_model) %>% 
+  add_recipe(tree_recipe)
+
+# Fit the model
+tree_fit <- fit(tree_wf, data = dat_train)
+
+# Display model summary
+tree_fit %>% 
+  extract_fit_engine() %>% 
+  summary()
+
+# Check performance using cross-validation
+tree_resamples <- vfold_cv(dat_train, v = 10)
+tree_results <- fit_resamples(tree_wf, resamples = tree_resamples)
+
+# Collect and display performance metrics
+tree_metrics <- tree_results %>% 
+  collect_metrics()
+
+tree_metrics
+```
+## Discussion
+
+**Primary Questions**
+
+Looking at the random forest model, we observed many values close to the predicted values and far from the predicted values. One specific outlier was Bakersfield, California, the highest value of the dataset. Bakersfield is a California energy production, agriculture, and distribution powerhouse.Kern County, with Bakersfield as its county seat,is California's most productive oil-producing county.The CMAQ cannot predict industry in its data, and the poverty levels in this county are also not correlated to industry like this. The AOD would intuitively be able to predict this from satellite vision, but as seen in the scatterplots, were also inaccurate in predicting outliers.Many places accurately measured by the model are likely characterized by reliable CMAQ simulations, consistent AOD measurements, meaningful socio-economic indicators, homogeneous environmental features, and representation in the training data. The model's accuracy is intricately linked to the quality and diversity of data from these predictor variables.
+
+In the context of our random forest model predicting air pollution levels across the contiguous United States, the effectiveness of the model may be influenced by several factors related to the predictor variables – CMAQ, AOD, and POV.
+
+*CMAQ (Computational Model for Air Quality)*
+The performance of the model could be particularly influenced by the accuracy and reliability of CMAQ simulations. Regions with well-established and validated CMAQ data might yield more precise predictions. Additionally, areas with complex terrain or meteorological patterns may pose challenges to the model, impacting its accuracy. Monitoring the model's performance across diverse geographical features will be essential.
+
+*AOD (Aerosol Optical Depth)*
+The success of the model may vary depending on the quality and coverage of AOD measurements. Satellite-derived AOD, being a proxy for particulate pollution, relies on accurate and consistent satellite observations. Regions with varying levels of atmospheric clarity or high AOD measurement uncertainty might experience challenges in model predictions. Additionally, validating AOD against ground-based measurements in different locations can enhance the model's robustness, a measurement that this project undertakes.
+
+*POV (Poverty Measurement)*
+The inclusion of poverty as a predictor introduces a socio-economic dimension to air pollution predictions. The model's effectiveness might be influenced by the spatial distribution and variability of poverty levels. Regions with diverse economic structures and disparities may exhibit varying degrees of correlation between poverty and air pollution, as we saw in the prior scatterplot. Understanding how this relationship evolves across different geographical areas is crucial for model interpretation. 
+
+*Regional Disparities*
+The model's performance may exhibit regional disparities based on the unique interactions between the predictor variables and local environmental characteristics. For instance, urban areas with high population density and industrial activities might showcase different predictive patterns compared to rural or mountainous regions. Fine-tuning the model to account for such regional nuances would help improve the model.
+
+*Variables Not Included*
+While CMAQ, AOD, and POV provide valuable insights, the model's performance might benefit from the inclusion of additional variables. For instance, local emissions data and land use patterns could offer more nuanced predictors. Meteorological variables, such as wind patterns and temperature, might enhance the model's accuracy by capturing dynamic atmospheric conditions. Incorporating these variables could provide a more comprehensive understanding of the complex interplay influencing air pollution.
+
+**Reflection on Process**
+
+The completion of this project has been a rewarding and educational journey. Several aspects of the project posed challenges, but these challenges ultimately contributed to a deeper understanding of data analysis and modeling.
+
+Model Selection was a significant challenge. Exploring linear regression, k-NN, and random forest models demanded thoughtful consideration of their strengths and weaknesses. Each model presented unique complexities, and deciding on the optimal approach required a comprehensive evaluation. Hyperparameter Tuning added another layer of complexity. Tuning the models for optimal performance, such as identifying the right number of neighbors or the number of trees in a random forest, demanded iterative testing and refinement. Cross-Validation was implemented to assess model performance across different subsets of the data. This highlighted the importance of robust validation strategies, ensuring that the models were not overfitting to the training data and could generalize well to new, unseen data.
+
+However, the project reinforced the significance of thorough Model Evaluation. Beyond training and fitting, it's essential to critically assess how well a model performs on different metrics and under various conditions. This process provided valuable insights into the strengths and limitations of each model. Collaborative Work was instrumental in the success of the project. Regular communication, sharing of ideas, and leveraging each others strengths ensured a well-rounded approach to problem-solving. This collaborative dynamic contributed to a holistic examination of the dataset. The project highlighted the Iterative Nature of data analysis and modeling. It emphasized the need for continuous refinement, revisiting assumptions, and adapting to new insights. The iterative process reinforced the importance of flexibility and a willingness to revisit and adjust the analytical approach.
+
+**Reflection on Performance**
+
+
+
+**Acknowledgements**
+
+The successful completion of this project was the result of a collaborative effort, with both Aneesh and Het actively contributing to every aspect of the work. Our coding and analysis tasks were approached methodically, with each part of the project receiving attention from both team members, ensuring a balanced and thorough examination of the data. We also greatly benefited from the valuable guidance and materials provided by Professor Rashin, which served as a foundation for our research.

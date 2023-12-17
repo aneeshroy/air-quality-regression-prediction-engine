@@ -1,5 +1,5 @@
 ---
-title: "Project 2 --- Navigating the Air: Data-Driven Insights into Atmospheric Particulate Matter"
+title: "Navigating the Air: Data-Driven Insights into Atmospheric Particulate Matter"
 output: html_document
 ---
 
@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE, eval = TRUE,
                       R.options = list(max.print=100))
 ```
 
-### Het Desai and Aneesh Roy
+### Aneesh Roy
 
 **Introduction**
 
@@ -378,10 +378,5 @@ Model Selection was a significant challenge. Exploring linear regression, k-NN, 
 
 However, the project reinforced the significance of thorough Model Evaluation. Beyond training and fitting, it's essential to critically assess how well a model performs on different metrics and under various conditions. This process provided valuable insights into the strengths and limitations of each model. Collaborative Work was instrumental in the success of the project. Regular communication, sharing of ideas, and leveraging each others strengths ensured a well-rounded approach to problem-solving. This collaborative dynamic contributed to a holistic examination of the dataset. The project highlighted the Iterative Nature of data analysis and modeling. It emphasized the need for continuous refinement, revisiting assumptions, and adapting to new insights. The iterative process reinforced the importance of flexibility and a willingness to revisit and adjust the analytical approach.
 
-**Reflection on Performance**
-
-
-
-**Acknowledgements**
 
 The successful completion of this project was the result of a collaborative effort, with both Aneesh and Het actively contributing to every aspect of the work. Our coding and analysis tasks were approached methodically, with each part of the project receiving attention from both team members, ensuring a balanced and thorough examination of the data. We also greatly benefited from the valuable guidance and materials provided by Professor Rashin, which served as a foundation for our research.
